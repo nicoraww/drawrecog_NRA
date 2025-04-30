@@ -1,13 +1,23 @@
+import os
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 from PIL import Image
+import numpy as np
 import io
-import os
+import base64
+import openai
 
-st.set_page_config(page_title="🎨 Tablero de Dibujo Total")
-st.title("🖌️ Tablero de Dibujo Interactivo")
+# --- Función para codificar imagen como base64 ---
+def encode_image(image: Image.Image) -> str:
+    buffered = io.BytesIO()
+    image.save(buffered, format="PNG")
+    return base64.b64encode(buffered.getvalue()).decode()
 
-# Sidebar: Configuración del canvas
+# --- Configuración inicial ---
+st.set_page_config(page_title="🎨 Tablero Inteligente")
+st.title("🧠 Tablero de Dibujo con Inteligencia Artificial")
+
+# --- Sidebar: Configuración del tablero ---
 with st.sidebar:
     st.subheader("🎛️ Propiedades del Tablero")
 
@@ -27,20 +37,20 @@ with st.sidebar:
     clear_canvas = st.button("🧹 Limpiar el Canvas")
     save_canvas = st.button("💾 Guardar como PNG")
 
-# Convertir color de relleno a formato RGBA
+    st.markdown("---")
+    api_key = st.text_input("🔑 Ingresa tu API Key de OpenAI", type="password")
+    analyze_button = st.button("🧠 Analizar dibujo con GPT")
+
+# --- Preparar colores ---
 fill_color_rgba = fill_color_hex.lstrip("#")
 r, g, b = tuple(int(fill_color_rgba[i:i+2], 16) for i in (0, 2, 4))
-fill_color = f"rgba({r}, {g}, {b}, 0.3)"  # Opacidad al 30%
+fill_color = f"rgba({r}, {g}, {b}, 0.3)"
 
-# Procesar imagen de fondo
-bg_image = None
-if bg_image_file:
-    bg_image = Image.open(bg_image_file)
+# --- Imagen de fondo ---
+bg_image = Image.open(bg_image_file) if bg_image_file else None
 
-# Si se presiona "limpiar", forzamos el canvas a recargarse usando una clave diferente
+# --- Canvas ---
 canvas_key = "canvas_reset" if clear_canvas else "canvas_active"
-
-# Mostrar el canvas
 canvas_result = st_canvas(
     fill_color=fill_color,
     stroke_width=stroke_width,
@@ -54,19 +64,61 @@ canvas_result = st_canvas(
     key=canvas_key,
 )
 
-# Guardar como PNG si se presionó el botón
+# --- Guardar como PNG ---
 if save_canvas and canvas_result.image_data is not None:
-    st.success("✅ Imagen guardada como 'mi_dibujo.png'")
     img = Image.fromarray(canvas_result.image_data.astype("uint8"), mode="RGBA")
-    img.save("mi_dibujo.png")
-    # También mostrar la imagen en pantalla y permitir descarga
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     byte_im = buf.getvalue()
-    st.download_button(
-        label="⬇️ Descargar imagen",
-        data=byte_im,
-        file_name="mi_dibujo.png",
-        mime="image/png"
-    )
+    st.download_button("⬇️ Descargar imagen", byte_im, file_name="mi_dibujo.png", mime="image/png")
     st.image(img, caption="Tu dibujo guardado", use_column_width=True)
+
+# --- Analizar con GPT ---
+if analyze_button:
+    if not api_key:
+        st.warning("⚠️ Por favor, ingresa tu clave API.")
+    elif canvas_result.image_data is None:
+        st.warning("⚠️ Dibuja algo antes de analizar.")
+    else:
+        with st.spinner("Analizando tu dibujo con GPT-4o..."):
+
+            try:
+                # Convertir imagen
+                image_data = Image.fromarray(canvas_result.image_data.astype("uint8"), mode="RGBA")
+                base64_img = encode_image(image_data)
+
+                # Crear mensaje para GPT
+                prompt = (
+                    "A partir de esta imagen dibujada, crea una historia corta en español. "
+                    "Incluye personajes, un lugar, una pequeña aventura, y un final imaginativo. "
+                    "Sé creativo, visual y algo fantástico."
+                )
+
+                # Llamada a OpenAI
+                os.environ["OPENAI_API_KEY"] = api_key
+                openai.api_key = api_key
+                response = openai.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:image/png;base64,{base64_img}",
+                                    },
+                                },
+                            ],
+                        }
+                    ],
+                    max_tokens=700,
+                )
+
+                story = response.choices[0].message.content
+                st.success("✨ ¡Aquí está tu historia!")
+                st.markdown(story)
+
+            except Exception as e:
+                st.error(f"Ocurrió un error al analizar la imagen: {e}")
