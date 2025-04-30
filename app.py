@@ -7,17 +7,17 @@ import io
 import base64
 import openai
 
-# --- Función para codificar imagen como base64 ---
+# --- Función para codificar imagen a base64 ---
 def encode_image(image: Image.Image) -> str:
     buffered = io.BytesIO()
     image.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
 
-# --- Configuración inicial ---
+# --- Configuración de página ---
 st.set_page_config(page_title="🎨 Tablero Inteligente")
 st.title("🧠 Tablero de Dibujo con Inteligencia Artificial")
 
-# --- Sidebar: Configuración del tablero ---
+# --- Sidebar: Configuración del Canvas ---
 with st.sidebar:
     st.subheader("🎛️ Propiedades del Tablero")
 
@@ -83,18 +83,15 @@ if analyze_button:
         with st.spinner("Analizando tu dibujo con GPT-4o..."):
 
             try:
-                # Convertir imagen
                 image_data = Image.fromarray(canvas_result.image_data.astype("uint8"), mode="RGBA")
                 base64_img = encode_image(image_data)
 
-                # Crear mensaje para GPT
                 prompt = (
                     "A partir de esta imagen dibujada, crea una historia corta en español. "
-                    "Incluye personajes, un lugar, una pequeña aventura, y un final imaginativo. "
+                    "Incluye personajes, un lugar, una pequeña aventura y un final imaginativo. "
                     "Sé creativo, visual y algo fantástico."
                 )
 
-                # Llamada a OpenAI
                 os.environ["OPENAI_API_KEY"] = api_key
                 openai.api_key = api_key
                 response = openai.chat.completions.create(
@@ -120,5 +117,41 @@ if analyze_button:
                 st.success("✨ ¡Aquí está tu historia!")
                 st.markdown(story)
 
+                # Guardamos la historia original en la sesión para reformularla después
+                st.session_state["historia_original"] = story
+
             except Exception as e:
                 st.error(f"Ocurrió un error al analizar la imagen: {e}")
+
+# --- Reformular la historia ---
+if "historia_original" in st.session_state:
+    st.markdown("---")
+    st.subheader("🎭 Reformular historia en otro tono")
+
+    tono = st.selectbox(
+        "¿Cómo quieres que suene la historia?",
+        ["gracioso", "histórico", "matemático", "científico"]
+    )
+    reescribir = st.button("✍️ Reescribir la historia")
+
+    if reescribir:
+        with st.spinner("Reescribiendo la historia..."):
+
+            prompt_reescritura = (
+                f"Reescribe la siguiente historia en un tono {tono}. "
+                "Mantén los personajes y la estructura, pero ajusta el estilo:"
+                f"\n\n{st.session_state['historia_original']}"
+            )
+
+            try:
+                response_reescritura = openai.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": prompt_reescritura}],
+                    max_tokens=700,
+                )
+                historia_modificada = response_reescritura.choices[0].message.content
+                st.success(f"🎉 Historia en tono {tono}:")
+                st.markdown(historia_modificada)
+
+            except Exception as e:
+                st.error(f"No se pudo reformular la historia: {e}")
